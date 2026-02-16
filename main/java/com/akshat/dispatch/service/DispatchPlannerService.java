@@ -23,8 +23,8 @@ public class DispatchPlannerService {
     }
 
     public DispatchPlanResponse buildPlan() {
-        List<OrderEntity> orders = orderRepository.findAll();
-        List<VehicleEntity> vehicles = vehicleRepository.findAll();
+        List<OrderEntity> orders = new ArrayList<>(orderRepository.findAll());
+        List<VehicleEntity> vehicles = new ArrayList<>(vehicleRepository.findAll());
 
         DispatchPlanResponse res = new DispatchPlanResponse();
         res.getSummary().setTotalOrders(orders.size());
