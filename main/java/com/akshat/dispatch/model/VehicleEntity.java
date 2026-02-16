@@ -18,6 +18,7 @@ public class VehicleEntity {
     private double lat;
     private double lon;
     private double capacity;
+    private String currentAddress;
 
     private LocalDateTime createdAt;
 
@@ -35,6 +36,9 @@ public class VehicleEntity {
 
     public double getCapacity() { return capacity; }
     public void setCapacity(double capacity) { this.capacity = capacity; }
+
+    public String getCurrentAddress() { return currentAddress; }
+    public void setCurrentAddress(String currentAddress) { this.currentAddress = currentAddress; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

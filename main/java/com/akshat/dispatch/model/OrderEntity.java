@@ -18,6 +18,7 @@ public class OrderEntity {
     private double lat;
     private double lon;
     private double weight;
+    private String address;
 
     @Enumerated(EnumType.STRING)
     private Priority priority;
@@ -38,6 +39,9 @@ public class OrderEntity {
 
     public double getWeight() { return weight; }
     public void setWeight(double weight) { this.weight = weight; }
+
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
 
     public Priority getPriority() { return priority; }
     public void setPriority(Priority priority) { this.priority = priority; }

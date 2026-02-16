@@ -1,6 +1,7 @@
 package com.akshat.dispatch.dto;
 
 import com.akshat.dispatch.model.Priority;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.*;
 
 public class OrderUpsertRequest {
@@ -8,14 +9,18 @@ public class OrderUpsertRequest {
     @NotBlank
     private String orderId;
 
-    @DecimalMin(value = "-90.0")
-    @DecimalMax(value = "90.0")
+    @JsonProperty("latitude")
+    @DecimalMin(value = "-90.0") @DecimalMax(value = "90.0")
     private double lat;
 
-    @DecimalMin(value = "-180.0")
-    @DecimalMax(value = "180.0")
+    @JsonProperty("longitude")
+    @DecimalMin(value = "-180.0") @DecimalMax(value = "180.0")
     private double lon;
 
+    @NotBlank
+    private String address;
+
+    @JsonProperty("packageWeight")
     @Positive
     private double weight;
 
@@ -30,6 +35,9 @@ public class OrderUpsertRequest {
 
     public double getLon() { return lon; }
     public void setLon(double lon) { this.lon = lon; }
+
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
 
     public double getWeight() { return weight; }
     public void setWeight(double weight) { this.weight = weight; }

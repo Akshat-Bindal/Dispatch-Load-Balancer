@@ -31,7 +31,9 @@ public class DispatchPlannerService {
 
         if (vehicles.isEmpty()) {
             for (OrderEntity o : orders) {
-                res.getUnassignedOrders().add(new UnassignedOrderDto(o.getExternalOrderId(), "NO_VEHICLES_AVAILABLE"));
+                res.getUnassignedOrders().add(
+                        new UnassignedOrderDto(o.getExternalOrderId(), "NO_VEHICLES_AVAILABLE")
+                );
             }
             res.getSummary().setUnassignedOrders(orders.size());
             res.getSummary().setAssignedOrders(0);
@@ -39,7 +41,7 @@ public class DispatchPlannerService {
             return res;
         }
 
-        // Sort orders: priority desc, weight desc, orderId asc (deterministic)
+        // Sort orders: priority desc, packageWeight desc, orderId asc (deterministic)
         orders.sort((a, b) -> {
             int pr = priorityRank(b.getPriority()) - priorityRank(a.getPriority());
             if (pr != 0) return pr;
@@ -51,31 +53,30 @@ public class DispatchPlannerService {
         });
 
         // Track remaining capacity + assigned orders per vehicle
-        Map<String, Double> remaining = new HashMap<>();
-        Map<String, List<OrderEntity>> assigned = new HashMap<>();
-        Map<String, VehicleEntity> vehicleById = new HashMap<>();
+        Map<String, Double> remainingCapacity = new HashMap<>();
+        Map<String, List<OrderEntity>> assignedOrdersByVehicle = new HashMap<>();
 
         for (VehicleEntity v : vehicles) {
-            remaining.put(v.getExternalVehicleId(), v.getCapacity());
-            assigned.put(v.getExternalVehicleId(), new ArrayList<>());
-            vehicleById.put(v.getExternalVehicleId(), v);
+            remainingCapacity.put(v.getExternalVehicleId(), v.getCapacity());
+            assignedOrdersByVehicle.put(v.getExternalVehicleId(), new ArrayList<>());
         }
 
-        // Greedy assignment: each order -> best vehicle (min score)
+        // Greedy assignment: each order -> best vehicle (min score) that has capacity
         for (OrderEntity o : orders) {
             String bestVehicleId = null;
             double bestScore = Double.POSITIVE_INFINITY;
 
             for (VehicleEntity v : vehicles) {
                 String vid = v.getExternalVehicleId();
-                double rem = remaining.get(vid);
+                double rem = remainingCapacity.get(vid);
 
                 if (rem + 1e-9 < o.getWeight()) continue; // not enough capacity
 
+                // Distance from vehicle current location to order
                 double d = Haversine.distanceKm(v.getLat(), v.getLon(), o.getLat(), o.getLon());
 
-                // simple + stable: mostly distance, tiny penalty for wasting capacity
-                double penalty = (rem - o.getWeight()) * 0.05; // adjust weight if you want
+                // small penalty to reduce wasted capacity (stable heuristic)
+                double penalty = (rem - o.getWeight()) * 0.05;
                 double score = d + penalty;
 
                 if (score < bestScore) {
@@ -85,10 +86,12 @@ public class DispatchPlannerService {
             }
 
             if (bestVehicleId == null) {
-                res.getUnassignedOrders().add(new UnassignedOrderDto(o.getExternalOrderId(), "NO_VEHICLE_CAPACITY"));
+                res.getUnassignedOrders().add(
+                        new UnassignedOrderDto(o.getExternalOrderId(), "NO_VEHICLE_CAPACITY")
+                );
             } else {
-                assigned.get(bestVehicleId).add(o);
-                remaining.put(bestVehicleId, remaining.get(bestVehicleId) - o.getWeight());
+                assignedOrdersByVehicle.get(bestVehicleId).add(o);
+                remainingCapacity.put(bestVehicleId, remainingCapacity.get(bestVehicleId) - o.getWeight());
             }
         }
 
@@ -98,25 +101,31 @@ public class DispatchPlannerService {
 
         for (VehicleEntity v : vehicles) {
             String vid = v.getExternalVehicleId();
-            List<OrderEntity> vOrders = assigned.get(vid);
+            List<OrderEntity> vOrders = assignedOrdersByVehicle.get(vid);
+
+            VehiclePlanDto vp = new VehiclePlanDto();
+            vp.setVehicleId(vid);
+            vp.setCapacity(v.getCapacity());
+            vp.setLat(v.getLat()); // JSON: currentLatitude
+            vp.setLon(v.getLon()); // JSON: currentLongitude
+            vp.setCurrentAddress(v.getCurrentAddress());
 
             if (vOrders == null || vOrders.isEmpty()) {
-                VehiclePlanDto vp = new VehiclePlanDto(vid);
                 vp.setTotalLoad(0);
                 vp.setTotalDistanceKm(0);
+                vp.setAssignedOrders(new ArrayList<>());
                 res.getVehicles().add(vp);
                 continue;
             }
 
-            List<OrderDto> route = nearestNeighborRoute(v, vOrders);
-            double dist = routeDistanceKm(v.getLat(), v.getLon(), route);
+            List<OrderDto> assignedRoute = nearestNeighborRoute(v, vOrders);
+            double dist = routeDistanceKm(v.getLat(), v.getLon(), assignedRoute);
 
             double load = vOrders.stream().mapToDouble(OrderEntity::getWeight).sum();
 
-            VehiclePlanDto vp = new VehiclePlanDto(vid);
             vp.setTotalLoad(round2(load));
             vp.setTotalDistanceKm(round2(dist));
-            vp.setRoute(route);
+            vp.setAssignedOrders(assignedRoute);
 
             res.getVehicles().add(vp);
 
@@ -124,10 +133,12 @@ public class DispatchPlannerService {
             assignedCount += vOrders.size();
         }
 
-        // Sort vehicles output by vehicleId for deterministic output
-        res.setVehicles(res.getVehicles().stream()
-                .sorted(Comparator.comparing(VehiclePlanDto::getVehicleId, String.CASE_INSENSITIVE_ORDER))
-                .collect(Collectors.toList()));
+        // Sort vehicles output by vehicleId (deterministic)
+        res.setVehicles(
+                res.getVehicles().stream()
+                        .sorted(Comparator.comparing(VehiclePlanDto::getVehicleId, String.CASE_INSENSITIVE_ORDER))
+                        .collect(Collectors.toList())
+        );
 
         res.getSummary().setAssignedOrders(assignedCount);
         res.getSummary().setUnassignedOrders(res.getUnassignedOrders().size());
@@ -145,6 +156,7 @@ public class DispatchPlannerService {
         };
     }
 
+    // Nearest-neighbor ordering starting from the vehicle’s current coordinates
     private List<OrderDto> nearestNeighborRoute(VehicleEntity vehicle, List<OrderEntity> orders) {
         List<OrderEntity> remaining = new ArrayList<>(orders);
         List<OrderDto> route = new ArrayList<>();
@@ -166,10 +178,12 @@ public class DispatchPlannerService {
             }
 
             OrderEntity chosen = remaining.remove(bestIdx);
+
             route.add(new OrderDto(
                     chosen.getExternalOrderId(),
                     chosen.getLat(),
                     chosen.getLon(),
+                    chosen.getAddress(),
                     chosen.getWeight(),
                     chosen.getPriority()
             ));
